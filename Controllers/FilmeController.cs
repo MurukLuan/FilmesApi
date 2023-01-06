@@ -1,4 +1,8 @@
-﻿using FilmesAPI.Models;
+﻿using AutoMapper;
+using FilmesAPI.Data;
+using FilmesAPI.Dtos;
+using FilmesAPI.Models;
+using Microsoft.AspNetCore.JsonPatch;
 using Microsoft.AspNetCore.Mvc;
 
 namespace FilmesAPI.Controllers;
@@ -7,24 +11,39 @@ namespace FilmesAPI.Controllers;
 [Route("[Controller]")]
 public class FilmeController : ControllerBase
 {
-    private static List<Filme> filmes = new List<Filme>();
-    private static int id = 0;
+    private FilmeContext _context;
+
+    private IMapper _mapper;
+
+    public FilmeController(FilmeContext context, IMapper mapper)
+    {
+        _context = context;
+        _mapper = mapper;
+    }
+
+    /// <summary>
+    /// Adiciona um filme ao banco de dados
+    /// </summary>
+    /// <param name="filmeDto">Objeto com os campos necessarios para a criação de um filme</param>
+    /// <returns>IactionResult</returns>
+    /// <response code="201">Caso a inserção seja feita com sucesso</response>
 
     [HttpPost]
-    public IActionResult AdicionaFilme([FromBody] Filme filme)
+    [ProducesResponseType(StatusCodes.Status201Created)]
+    public IActionResult AdicionaFilme(
+        [FromBody] CreateFilmeDto filmeDto)
     {
-        //adciona um filme com um id
-        filme.Id = id++;
-        filmes.Add(filme);
-        //cria o filme e redireciona para o caminho com o id que foi criado
+        Filme filme = _mapper.Map<Filme>(filmeDto);
+        _context.Filmes.Add(filme);
+        _context.SaveChanges();
         return CreatedAtAction(nameof(RecuperaFilmePorId), new { id = filme.Id }, filme);
     }
 
     [HttpGet]
     //busca todos os filmes, com skip(pula) como padrão 0, e take(pega) como padrão 10
-    public IEnumerable<Filme> RecuperaFilmes([FromQuery] int skip = 0, [FromQuery] int take = 10)
+    public IEnumerable<ReadFilmeDto> RecuperaFilmes([FromQuery] int skip = 0, [FromQuery] int take = 10)
     {
-        return filmes.Skip(skip).Take(take);
+        return _mapper.Map<List<ReadFilmeDto>>(_context.Filmes.Skip(skip).Take(take));
     }
 
     [HttpGet("{id}")]
@@ -32,10 +51,60 @@ public class FilmeController : ControllerBase
     public IActionResult RecuperaFilmePorId(int id)
     {
         //pega o primeiro filme da lista com o id solicitado
-        var filme = filmes.FirstOrDefault(filme => filme.Id == id);
+        var filme = _context.Filmes.FirstOrDefault(filme => filme.Id == id);
         //caso o retorno for um id que não há na base, retorna falso e devolve uma ação 404 (not found)
         if (filme == null) return NotFound();
         //caso contrario retorna os dados do filme com o status 200(ok)
-        return Ok(filme);
+
+        var filmeDto = _mapper.Map<ReadFilmeDto>(filme);
+        return Ok(filmeDto);
+    }
+
+    [HttpPut("{id}")]
+    public IActionResult Atualizafilme(int id, [FromBody] UpdateFilmeDto filmeDto)
+    {
+        var filme = _context.Filmes.FirstOrDefault(filme => filme.Id == id);
+
+        if(filme == null) return NotFound();
+
+        _mapper.Map(filmeDto, filme);
+        _context.SaveChanges();
+
+        return NoContent();
+    }
+
+    [HttpPatch("{id}")]
+    public IActionResult Atualizafilme(int id,
+        JsonPatchDocument<UpdateFilmeDto> patch)
+    {
+        var filme = _context.Filmes.FirstOrDefault(filme => filme.Id == id);
+
+        if (filme == null) return NotFound();
+
+        var filmeParaAtualizar = _mapper.Map<UpdateFilmeDto>(filme);
+
+        patch.ApplyTo(filmeParaAtualizar, ModelState);
+
+        if (!TryValidateModel(filmeParaAtualizar))
+        {
+            return ValidationProblem(ModelState);
+        }
+
+        _mapper.Map(filmeParaAtualizar, filme);
+        _context.SaveChanges();
+
+        return NoContent();
+    }
+
+    [HttpDelete("{id}")]
+    public IActionResult DeletaFilme(int id)
+    {
+        var filme = _context.Filmes.FirstOrDefault(filme => filme.Id == id);
+
+        if (filme == null) return NotFound();
+
+        _context.Remove(filme);
+        _context.SaveChanges();
+        return NoContent();
     }
 }
